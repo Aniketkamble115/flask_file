@@ -28,12 +28,29 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install sonarqube-scanner
+          # Note: there's no maintained PyPI package named `sonarqube-scanner`.
+          # We install project Python dependencies only; the SonarQube scanner
+          # (CLI) is installed below and requires Java.
 
       # Step 4: Run tests
       - name: Run tests
         run: |
           pytest
+
+      # Step 4a: Set up Java (required by SonarScanner)
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      # Step 4b: Install SonarScanner CLI
+      - name: Install SonarScanner CLI
+        run: |
+          curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+          unzip sonar-scanner.zip -d $HOME
+          mv $HOME/sonar-scanner-* $HOME/sonar-scanner
+          echo "$HOME/sonar-scanner/bin" >> $GITHUB_PATH
 
       # Step 5: Run SonarQube analysis
       - name: SonarQube Scan
