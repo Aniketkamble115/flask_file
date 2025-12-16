@@ -56,14 +56,34 @@ jobs:
           mv $HOME/sonar-scanner-* $HOME/sonar-scanner
           echo "$HOME/sonar-scanner/bin" >> $GITHUB_PATH
 
-      # Step 5: Run SonarQube analysis
+      # Step 5: Validate Sonar environment variables (fail fast with a clear message)
+      - name: Validate Sonar env
+        env:
+          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          if [ -z "$SONAR_HOST_URL" ]; then
+            echo "ERROR: SONAR_HOST_URL is not set. Add it to repository secrets (Settings → Secrets)."
+            exit 1
+          fi
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "ERROR: SONAR_TOKEN is not set. Add it to repository secrets (Settings → Secrets)."
+            exit 1
+          fi
+          case "$SONAR_HOST_URL" in
+            http://*|https://*) echo "SONAR_HOST_URL looks OK" ;;
+            *) echo "ERROR: SONAR_HOST_URL must start with http:// or https://" ; exit 1 ;;
+          esac
+
+      # Step 6: Run SonarQube analysis (with debug enabled)
       - name: SonarQube Scan
         env:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          sonar-scanner \
+          # Enable debug logging (-X) to diagnose possible connectivity/auth issues
+          sonar-scanner -X \
             -Dsonar.projectKey=flask-project \
             -Dsonar.sources=. \
-            -Dsonar.host.url=$SONAR_HOST_URL \
-            -Dsonar.login=$SONAR_TOKEN
+            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.login="$SONAR_TOKEN"
