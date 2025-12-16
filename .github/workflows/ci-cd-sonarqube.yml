@@ -62,28 +62,39 @@ jobs:
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          if [ -z "$SONAR_HOST_URL" ]; then
-            echo "ERROR: SONAR_HOST_URL is not set. Add it to repository secrets (Settings → Secrets)."
+          # Trim leading/trailing whitespace from the host URL (helps avoid errors like
+          # "Invalid URL port: '9000 '")
+          SONAR_HOST_URL_TRIMMED=$(echo "$SONAR_HOST_URL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+          if [ -z "$SONAR_HOST_URL_TRIMMED" ]; then
+            echo "ERROR: SONAR_HOST_URL is not set or is empty after trimming. Add it to repository secrets (Settings → Secrets)."
             exit 1
           fi
           if [ -z "$SONAR_TOKEN" ]; then
             echo "ERROR: SONAR_TOKEN is not set. Add it to repository secrets (Settings → Secrets)."
             exit 1
           fi
-          case "$SONAR_HOST_URL" in
-            http://*|https://*) echo "SONAR_HOST_URL looks OK" ;;
-            *) echo "ERROR: SONAR_HOST_URL must start with http:// or https://" ; exit 1 ;;
+          case "$SONAR_HOST_URL_TRIMMED" in
+            http://*|https://*) echo "SONAR_HOST_URL looks OK: $SONAR_HOST_URL_TRIMMED" ;;
+            *) echo "ERROR: SONAR_HOST_URL must start with http:// or https:// (after trimming)." ; exit 1 ;;
           esac
+          # Export trimmed value for subsequent steps
+          echo "SONAR_HOST_URL_TRIMMED=$SONAR_HOST_URL_TRIMMED" >> $GITHUB_ENV
 
       # Step 6: Run SonarQube analysis (with debug enabled)
       - name: SonarQube Scan
         env:
-          SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
+          # Use the trimmed host URL exported to GITHUB_ENV by the validation step.
+          # If not present, fail with a helpful message.
+          if [ -z "$SONAR_HOST_URL_TRIMMED" ]; then
+            echo "ERROR: SONAR_HOST_URL_TRIMMED is not set. Validation step may have failed or was skipped."
+            exit 1
+          fi
           # Enable debug logging (-X) to diagnose possible connectivity/auth issues
           sonar-scanner -X \
             -Dsonar.projectKey=flask-project \
             -Dsonar.sources=. \
-            -Dsonar.host.url="$SONAR_HOST_URL" \
+            -Dsonar.host.url="$SONAR_HOST_URL_TRIMMED" \
             -Dsonar.login="$SONAR_TOKEN"
