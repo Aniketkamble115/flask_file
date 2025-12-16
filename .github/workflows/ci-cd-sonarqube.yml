@@ -27,7 +27,8 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          # Install project dependencies and ensure pytest is available for test step
+          python -m pip install -r requirements.txt pytest
           # Note: there's no maintained PyPI package named `sonarqube-scanner`.
           # We install project Python dependencies only; the SonarQube scanner
           # (CLI) is installed below and requires Java.
@@ -35,7 +36,10 @@ jobs:
       # Step 4: Run tests
       - name: Run tests
         run: |
-          pytest
+          # Show installed packages for debugging when pytest is missing
+          python -m pip list
+          # Run tests via the module runner to avoid PATH issues
+          python -m pytest --maxfail=1 -q
 
       # Step 4a: Set up Java (required by SonarScanner)
       - name: Set up Java
