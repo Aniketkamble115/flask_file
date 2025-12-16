@@ -11,6 +11,15 @@ on:
 jobs:
   build-and-sonarqube:
     runs-on: ubuntu-latest
+    # Start a SonarQube service container so the scanner can connect to localhost:9000
+    services:
+      sonarqube:
+        image: sonarqube:9-community
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd="curl -sS http://localhost:9000 || exit 1"
+          --health-interval=10s --health-timeout=5s --health-retries=30
 
     steps:
       # Step 1: Checkout code
@@ -59,26 +68,41 @@ jobs:
       # Step 5: Validate Sonar environment variables (fail fast with a clear message)
       - name: Validate Sonar env
         env:
+          # Prefer secret if supplied; otherwise fall back to localhost service started above
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
-          # Trim leading/trailing whitespace from the host URL (helps avoid errors like
-          # "Invalid URL port: '9000 '")
+          # If no secret provided, default to the job service at http://localhost:9000
+          if [ -z "$SONAR_HOST_URL" ]; then
+            echo "SONAR_HOST_URL not set in secrets; defaulting to http://localhost:9000 (service container)"
+            SONAR_HOST_URL="http://localhost:9000"
+          fi
+          # Trim leading/trailing whitespace from the host URL
           SONAR_HOST_URL_TRIMMED=$(echo "$SONAR_HOST_URL" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
 
           if [ -z "$SONAR_HOST_URL_TRIMMED" ]; then
-            echo "ERROR: SONAR_HOST_URL is not set or is empty after trimming. Add it to repository secrets (Settings → Secrets)."
+            echo "ERROR: SONAR_HOST_URL is empty after trimming."
             exit 1
           fi
           if [ -z "$SONAR_TOKEN" ]; then
-            echo "ERROR: SONAR_TOKEN is not set. Add it to repository secrets (Settings → Secrets)."
-            exit 1
+            echo "WARNING: SONAR_TOKEN is not set. If your Sonar server requires auth this will fail."
           fi
           case "$SONAR_HOST_URL_TRIMMED" in
             http://*|https://*) echo "SONAR_HOST_URL looks OK: $SONAR_HOST_URL_TRIMMED" ;;
             *) echo "ERROR: SONAR_HOST_URL must start with http:// or https:// (after trimming)." ; exit 1 ;;
           esac
-          # Export trimmed value for subsequent steps
+          # Wait for SonarQube service to be healthy/responding
+          echo "Waiting for SonarQube at $SONAR_HOST_URL_TRIMMED to respond..."
+          retries=0
+          until curl -sSf "$SONAR_HOST_URL_TRIMMED" >/dev/null 2>&1 || [ $retries -ge 60 ]; do
+            retries=$((retries + 1))
+            echo "Sonar not ready yet (attempt $retries/60). Sleeping 5s..."
+            sleep 5
+          done
+          if [ $retries -ge 60 ]; then
+            echo "ERROR: SonarQube did not become ready after waiting; aborting."
+            exit 1
+          fi
           echo "SONAR_HOST_URL_TRIMMED=$SONAR_HOST_URL_TRIMMED" >> $GITHUB_ENV
 
       # Step 6: Run SonarQube analysis (with debug enabled)
